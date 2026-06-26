@@ -1,12 +1,29 @@
 [app]
+# The name of your app as displayed in the menu
 name = "Geiger"
-category = "Toys & Games"
-hidden = false
 
-[entry_point]
+# The submenu where your app should appear.
+# One of: "Badge", "Music", "Media", "Apps", "Games", "Background"
+category = "Games"
+
+[entry]
+# The name of your entry point `Application` class
 class = "GeigerApp"
 
 [metadata]
+# Your nickname. Must be at most 32 characters!
 author = "tim"
+
+# License of your app as an SPDX identifier: <https://spdx.org/licenses/>
 license = "MIT"
-description = "A mutant-spider Tamagotchi. Feed, water and play to grow it from a hatchling into an apex predator that fights humans and stomps the world's monuments."
+
+# URL to the repository of your app.
+url = "https://github.com/TimNe0/Geiger"
+
+# Description of your app. Maximum 140 characters!
+description = "Mutant-spider Tamagotchi: feed, water and play to grow a hatchling into an apex predator that fights humans and stomps monuments."
+
+# Version number of your app. If you push a commit where this number is
+# increased, we interpret this as a new version being released.
+# Version number must be a string!
+version = "0.1.0"
