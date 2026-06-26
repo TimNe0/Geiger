@@ -69,7 +69,9 @@ via the emulator / simulator). The entry point is `app.py`, exporting
 
 - `app.py` — the entire app (single self-contained MicroPython file).
 - `tildagon.toml` — app metadata for the launcher.
-- `geiger-icons.png` — the canonical retro icon sheet (art reference).
+
+All artwork (spider, prey, monuments) is drawn procedurally with `ctx`; there
+are no image assets to ship.
 
 ## Licence
 
