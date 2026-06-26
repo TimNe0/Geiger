@@ -67,11 +67,16 @@ via the emulator / simulator). The entry point is `app.py`, exporting
 
 ## Files
 
-- `app.py` — the entire app (single self-contained MicroPython file).
+- `app.py` — game logic and the input/state machine; exports `GeigerApp`.
+- `draw.py` — all procedural rendering (`RenderMixin`, mixed into `GeigerApp`).
+- `consts.py` — constants, tunables, tables and tiny helpers.
 - `tildagon.toml` — app metadata for the launcher.
 
-All artwork (spider, prey, monuments) is drawn procedurally with `ctx`; there
-are no image assets to ship.
+The code is split across three small modules on purpose: a single large file
+ran the badge out of RAM while compiling it on import ("app too big?"). The
+badge compiles one module at a time, so smaller modules keep the peak memory
+low. All artwork (spider, prey, monuments) is drawn procedurally with `ctx`;
+there are no image assets to ship.
 
 ## Licence
 
