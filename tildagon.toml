@@ -1,0 +1,12 @@
+[app]
+name = "Geiger"
+category = "Toys & Games"
+hidden = false
+
+[entry_point]
+class = "GeigerApp"
+
+[metadata]
+author = "tim"
+license = "MIT"
+description = "A mutant-spider Tamagotchi. Feed, water and play to grow it from a hatchling into an apex predator that fights humans and stomps the world's monuments."
