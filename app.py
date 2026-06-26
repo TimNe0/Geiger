@@ -140,6 +140,8 @@ class GeigerApp(app.App):
         self.prey = []
         self.feed_is_nuke = False
         self.feed_caught = False
+        self.action_t = 0.0      # water/play animation timer
+        self.played_shake = False
         self.fight_phase = 0.0
         self.fight_ohno = ""
         self.monument_index = 0
@@ -336,6 +338,10 @@ class GeigerApp(app.App):
             self._update_main(dt)
         elif self.view == "feed":
             self._update_feed(dt)
+        elif self.view == "water":
+            self._update_action(dt, "water")
+        elif self.view == "play":
+            self._update_action(dt, "play")
         elif self.view == "fight":
             self._update_fight(dt)
         elif self.view == "kaiju":
@@ -453,25 +459,38 @@ class GeigerApp(app.App):
 
     # ---------------------------------------------------------------- water/play
     def _do_water(self):
-        self.pet["thirst"] = clamp(self.pet["thirst"] + 35, 0, 100)
-        self._grant_xp(10)
-        self._save()
-        self._flash_message("Slurp! Thirst restored.")
-        self._notify("Watered")
-        self.view = "main"
+        self.view = "water"
+        self.action_t = 1.2
 
     def _do_play(self):
-        boost = 30
-        if _HAS_IMU:
-            mag = self._imu_magnitude()
-            if mag > 1.6:  # a shake spike
-                boost = 45
-        self.pet["happiness"] = clamp(self.pet["happiness"] + boost, 0, 100)
-        self._grant_xp(10)
-        self.shake = 2.0
+        self.view = "play"
+        self.action_t = 1.2
+        self.played_shake = False
+
+    def _update_action(self, dt, kind):
+        if self.button_states.get(BUTTON_TYPES["CANCEL"]):
+            self.button_states.clear()
+            self.action_t = 0.0
+        if kind == "play" and _HAS_IMU and self._imu_magnitude() > 1.6:
+            self.played_shake = True
+        self.action_t -= dt
+        if self.action_t <= 0:
+            self._finish_action(kind)
+
+    def _finish_action(self, kind):
+        if kind == "water":
+            self.pet["thirst"] = clamp(self.pet["thirst"] + 35, 0, 100)
+            self._grant_xp(10)
+            self._flash_message("Slurp! Thirst restored.")
+            self._notify("Watered")
+        else:
+            boost = 45 if self.played_shake else 30
+            self.pet["happiness"] = clamp(self.pet["happiness"] + boost, 0, 100)
+            self._grant_xp(10)
+            self.shake = 2.0
+            self._flash_message("Wheee! Happy spider.")
+            self._notify("Played")
         self._save()
-        self._flash_message("Wheee! Happy spider.")
-        self._notify("Played")
         self.view = "main"
 
     def _imu_magnitude(self):
@@ -681,6 +700,8 @@ class GeigerApp(app.App):
             self._draw_hatching(ctx)
         elif self.view == "feed":
             self._draw_feed(ctx)
+        elif self.view in ("water", "play"):
+            self._draw_action(ctx, self.view)
         elif self.view == "fight":
             self._draw_fight(ctx)
         elif self.view == "kaiju":
@@ -865,6 +886,21 @@ class GeigerApp(app.App):
         self._draw_spider(ctx, self.spider_x, 70, 0.7, self._is_glowing())
         self._text(ctx, "E/B steer  C pounce  F back", 0, 104, 11)
 
+    # ----- water / play
+    def _draw_action(self, ctx, kind):
+        self._draw_spider(ctx, 0, 24, 1.3, self._is_glowing())
+        prog = 1.0 - clamp(self.action_t / 1.2, 0, 1)
+        if kind == "water":
+            self._icon_drop(ctx, 0, -56 + prog * 56, 1.3)
+            self._text(ctx, "watering...", 0, -96, 15)
+        else:
+            self._icon_web(ctx, 0, -48, 1.4)
+            label = "shake to play!" if _HAS_IMU else "playing..."
+            self._text(ctx, label, 0, -96, 15)
+            if self.played_shake:
+                self._text(ctx, "wheee!", 0, 92, 14)
+        self._text(ctx, "F: skip", 0, 110, 11)
+
     # ----- fight
     def _draw_fight(self, ctx):
         self._draw_spider(ctx, -30, 10, 1.6, self._is_glowing())
@@ -925,100 +961,193 @@ class GeigerApp(app.App):
             self._text(ctx, self.message, 0, -118 + 10, 13, colour=(0.1, 0.4, 0.1))
 
     # ============================================================ icon drawing
-    # Simple ink silhouettes matching the supplied icon sheet. Each takes a
-    # centre (x, y) and a scale.
+    # Ink silhouettes matching the supplied geiger-icons.png sheet. Each takes
+    # a centre (x, y) and a scale. Drawn with only the ctx primitives that are
+    # reliably present on the badge firmware (arc / rectangle / line / fill).
+
+    def _ell(self, ctx, x, y, rx, ry):
+        # filled ellipse via a scaled unit circle (ctx.ellipse isn't portable)
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.scale(rx, ry)
+        ctx.begin_path()
+        ctx.arc(0, 0, 1, 0, math.tau, False)
+        ctx.fill()
+        ctx.restore()
+
     def _icon_fly(self, ctx, x, y, s):
+        # vertical segmented body, two wings spread up-and-out, antennae
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.ellipse(0, 0, 4, 7, 0, 0, math.tau); ctx.fill()
+        for sx in (-1, 1):                       # wings
+            self._ell(ctx, sx * 7, -3, 6, 4)
+        self._ell(ctx, 0, 3, 4, 8)               # abdomen
+        ctx.begin_path(); ctx.arc(0, -7, 3.5, 0, math.tau, False); ctx.fill()  # head
+        ctx.line_width = 1.2                      # antennae
         for sx in (-1, 1):
-            ctx.begin_path(); ctx.ellipse(sx * 7, -3, 6, 4, 0, 0, math.tau); ctx.fill()
+            ctx.begin_path(); ctx.move_to(sx * 1.5, -10); ctx.line_to(sx * 4, -14); ctx.stroke()
         ctx.restore()
 
     def _icon_rat(self, ctx, x, y, s):
+        # side profile: round body, ear, pointy snout right, long curly tail
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.ellipse(0, 0, 10, 6, 0, 0, math.tau); ctx.fill()
-        ctx.begin_path(); ctx.arc(9, -2, 4, 0, math.tau, False); ctx.fill()
-        ctx.line_width = 1.5
-        ctx.begin_path(); ctx.move_to(-10, 0); ctx.line_to(-20, 4); ctx.stroke()
+        self._ell(ctx, 0, 0, 10, 6)
+        ctx.begin_path(); ctx.arc(8, -1, 4.5, 0, math.tau, False); ctx.fill()    # head
+        ctx.begin_path(); ctx.arc(7, -6, 2.6, 0, math.tau, False); ctx.fill()    # ear
+        ctx.begin_path(); ctx.move_to(12, -1); ctx.line_to(15, 1); ctx.line_to(12, 3); ctx.fill()  # snout
+        ctx.line_width = 1.6                                                     # tail
+        ctx.begin_path(); ctx.move_to(-10, 1); ctx.line_to(-17, -2); ctx.line_to(-20, 4); ctx.stroke()
+        ctx.line_width = 1.4                                                     # feet
+        for fx in (-4, 4):
+            ctx.begin_path(); ctx.move_to(fx, 5); ctx.line_to(fx, 8); ctx.stroke()
         ctx.restore()
 
     def _icon_dog(self, ctx, x, y, s):
+        # side profile standing: rounded body, head + floppy ear, tail, 4 legs
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.rectangle(-10, -4, 20, 9).fill()
-        ctx.begin_path(); ctx.arc(11, -6, 5, 0, math.tau, False); ctx.fill()
-        for lx in (-8, -2, 4, 9):
-            ctx.rectangle(lx, 5, 3, 7).fill()
+        self._ell(ctx, -2, -2, 11, 6)
+        ctx.begin_path(); ctx.arc(10, -5, 4.5, 0, math.tau, False); ctx.fill()   # head
+        ctx.begin_path(); ctx.move_to(13, -4); ctx.line_to(17, -3); ctx.line_to(13, -1); ctx.fill()  # snout
+        ctx.begin_path(); ctx.move_to(8, -9); ctx.line_to(7, -3); ctx.line_to(11, -4); ctx.fill()    # ear
+        ctx.line_width = 2.5                                                     # tail up
+        ctx.begin_path(); ctx.move_to(-12, -4); ctx.line_to(-16, -10); ctx.stroke()
+        ctx.line_width = 3                                                       # legs
+        for lx in (-9, -4, 4, 8):
+            ctx.begin_path(); ctx.move_to(lx, 3); ctx.line_to(lx, 10); ctx.stroke()
         ctx.restore()
 
     def _icon_child(self, ctx, x, y, s):
-        self._icon_person(ctx, x, y, s * 0.7)
+        self._icon_person(ctx, x, y, s * 0.72, stubby=True)
 
     def _icon_adult(self, ctx, x, y, s):
-        self._icon_person(ctx, x, y, s)
+        self._icon_person(ctx, x, y, s, stubby=False)
 
-    def _icon_person(self, ctx, x, y, s):
+    def _icon_person(self, ctx, x, y, s, stubby=False):
+        # solid silhouette: round head, tapered torso, arms at sides, two legs
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.arc(0, -12, 5, 0, math.tau, False); ctx.fill()
-        ctx.line_width = 4
-        ctx.begin_path(); ctx.move_to(0, -7); ctx.line_to(0, 6); ctx.stroke()
-        ctx.begin_path(); ctx.move_to(-7, -2); ctx.line_to(7, -2); ctx.stroke()
-        ctx.begin_path(); ctx.move_to(0, 6); ctx.line_to(-6, 16); ctx.stroke()
-        ctx.begin_path(); ctx.move_to(0, 6); ctx.line_to(6, 16); ctx.stroke()
+        leg = 13 if stubby else 16
+        ctx.begin_path(); ctx.arc(0, -13, 5, 0, math.tau, False); ctx.fill()     # head
+        ctx.begin_path()                                                         # torso
+        ctx.move_to(-5, -7); ctx.line_to(5, -7)
+        ctx.line_to(6, 4); ctx.line_to(-6, 4); ctx.fill()
+        ctx.line_width = 3                                                       # arms
+        ctx.begin_path(); ctx.move_to(-5, -5); ctx.line_to(-9, 4); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(5, -5); ctx.line_to(9, 4); ctx.stroke()
+        ctx.line_width = 3.5                                                     # legs
+        ctx.begin_path(); ctx.move_to(-2, 4); ctx.line_to(-4, leg); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(2, 4); ctx.line_to(4, leg); ctx.stroke()
+        ctx.restore()
+
+    def _icon_drop(self, ctx, x, y, s):
+        # teardrop: round bottom + pointed top, with a paper highlight
+        ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
+        ctx.begin_path(); ctx.arc(0, 4, 8, 0, math.tau, False); ctx.fill()
+        ctx.begin_path(); ctx.move_to(-6, 0); ctx.line_to(0, -13); ctx.line_to(6, 0); ctx.fill()
+        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(-3, 5, 2.2, 0, math.tau, False); ctx.fill()
+        ctx.restore()
+
+    def _icon_web(self, ctx, x, y, s):
+        # circular spider web: radial spokes + concentric polygon rings
+        ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK); ctx.line_width = 1.2
+        n = 8
+        for i in range(n):
+            a = i * math.tau / n
+            ctx.begin_path(); ctx.move_to(0, 0)
+            ctx.line_to(math.cos(a) * 12, math.sin(a) * 12); ctx.stroke()
+        for rr in (4, 8, 12):
+            ctx.begin_path()
+            for i in range(n + 1):
+                a = i * math.tau / n
+                px, py = math.cos(a) * rr, math.sin(a) * rr
+                if i == 0:
+                    ctx.move_to(px, py)
+                else:
+                    ctx.line_to(px, py)
+            ctx.stroke()
         ctx.restore()
 
     def _icon_nuke(self, ctx, x, y, s):
+        # waste drum: elliptical top, rim bands, radiation trefoil
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s)
-        green = self._is_glowing() or True
-        ctx.rgb(*(GLOW if (0.5 + 0.5 * math.sin(self.t * 8)) > 0.5 else INK))
-        ctx.rectangle(-9, -10, 18, 20).fill()
-        # trefoil
-        ctx.rgb(*PAPER)
-        ctx.begin_path(); ctx.arc(0, 0, 2.5, 0, math.tau, False); ctx.fill()
+        pulse = 0.5 + 0.5 * math.sin(self.t * 8)
+        barrel = GLOW if (self._is_glowing() and pulse > 0.5) else INK
+        ctx.rgb(*barrel)
+        ctx.rectangle(-9, -9, 18, 19).fill()     # body
+        self._ell(ctx, 0, -9, 9, 3)              # top
+        ctx.rgb(*PAPER); ctx.line_width = 1.2     # rim bands
+        ctx.begin_path(); ctx.move_to(-9, -3); ctx.line_to(9, -3); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(-9, 4); ctx.line_to(9, 4); ctx.stroke()
+        ctx.rgb(*PAPER)                           # trefoil
+        ctx.begin_path(); ctx.arc(0, 0, 1.6, 0, math.tau, False); ctx.fill()
         for a in range(3):
             ang = a * math.tau / 3 - math.pi / 2
-            ctx.begin_path()
-            ctx.move_to(0, 0)
-            ctx.arc(0, 0, 8, ang - 0.5, ang + 0.5, False)
-            ctx.fill()
+            ctx.begin_path(); ctx.move_to(0, 0)
+            ctx.arc(0, 0, 5.5, ang - 0.5, ang + 0.5, False)
+            ctx.line_to(0, 0); ctx.fill()
         ctx.restore()
 
     # ============================================================ monuments
     def _mon_eiffel_tower(self, ctx, x, y, s):
+        # curved splayed legs, two platforms, lattice braces, antenna point
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK); ctx.line_width = 2
-        ctx.begin_path(); ctx.move_to(-14, 0); ctx.line_to(-3, -40); ctx.line_to(3, -40)
-        ctx.line_to(14, 0); ctx.move_to(-9, -16); ctx.line_to(9, -16)
-        ctx.move_to(-5, -28); ctx.line_to(5, -28); ctx.stroke(); ctx.restore()
+        ctx.begin_path(); ctx.move_to(-14, 0); ctx.line_to(-6, -18); ctx.line_to(-2, -40); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(14, 0); ctx.line_to(6, -18); ctx.line_to(2, -40); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(0, -40); ctx.line_to(0, -48); ctx.stroke()      # antenna
+        ctx.begin_path(); ctx.move_to(-10, -16); ctx.line_to(10, -16); ctx.stroke()   # platforms
+        ctx.begin_path(); ctx.move_to(-5, -28); ctx.line_to(5, -28); ctx.stroke()
+        ctx.line_width = 1.2                                                          # lattice
+        ctx.begin_path(); ctx.move_to(-9, -4); ctx.line_to(9, -12); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(9, -4); ctx.line_to(-9, -12); ctx.stroke()
+        ctx.restore()
 
     def _mon_statue_of_liberty(self, ctx, x, y, s):
+        # pedestal, robe, head with crown spikes, raised torch arm
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.line_width = 3
-        ctx.begin_path(); ctx.move_to(0, 0); ctx.line_to(0, -28); ctx.stroke()
-        ctx.begin_path(); ctx.arc(0, -32, 4, 0, math.tau, False); ctx.fill()
-        ctx.line_width = 2
-        ctx.begin_path(); ctx.move_to(0, -22); ctx.line_to(8, -38); ctx.stroke()
-        ctx.begin_path(); ctx.arc(8, -40, 2, 0, math.tau, False); ctx.fill()
-        ctx.rectangle(-7, 0, 14, 6).fill(); ctx.restore()
+        ctx.rectangle(-8, -4, 16, 6).fill()      # pedestal base
+        ctx.rectangle(-5, -10, 10, 6).fill()     # pedestal top
+        ctx.begin_path(); ctx.move_to(-6, -10); ctx.line_to(0, -30); ctx.line_to(6, -10); ctx.fill()  # robe
+        ctx.begin_path(); ctx.arc(0, -33, 3.5, 0, math.tau, False); ctx.fill()        # head
+        ctx.line_width = 1.2                                                          # crown spikes
+        for a in (-0.9, -0.45, 0, 0.45, 0.9):
+            ctx.begin_path(); ctx.move_to(0, -33)
+            ctx.line_to(math.sin(a) * 9, -33 - math.cos(a) * 9); ctx.stroke()
+        ctx.line_width = 2.5                                                          # torch arm
+        ctx.begin_path(); ctx.move_to(3, -26); ctx.line_to(9, -40); ctx.stroke()
+        ctx.begin_path(); ctx.arc(9, -42, 2.5, 0, math.tau, False); ctx.fill()        # flame
+        ctx.restore()
 
     def _mon_big_ben(self, ctx, x, y, s):
+        # clock tower with face + hands and a pointed spire
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
         ctx.rectangle(-6, -34, 12, 34).fill()
-        ctx.begin_path(); ctx.move_to(-6, -34); ctx.line_to(0, -44); ctx.line_to(6, -34); ctx.fill()
-        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(0, -24, 3, 0, math.tau, False); ctx.fill()
+        ctx.begin_path(); ctx.move_to(-7, -34); ctx.line_to(0, -46); ctx.line_to(7, -34); ctx.fill()  # spire
+        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(0, -26, 3.5, 0, math.tau, False); ctx.fill()       # face
+        ctx.rgb(*INK); ctx.line_width = 1
+        ctx.begin_path(); ctx.move_to(0, -26); ctx.line_to(0, -28.5); ctx.stroke()
+        ctx.begin_path(); ctx.move_to(0, -26); ctx.line_to(2, -26); ctx.stroke()
         ctx.restore()
 
     def _mon_white_house(self, ctx, x, y, s):
+        # columned block, central pediment + flag, steps
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
         ctx.rectangle(-16, -14, 32, 14).fill()
-        ctx.begin_path(); ctx.move_to(-16, -14); ctx.line_to(0, -24); ctx.line_to(16, -14); ctx.fill()
-        ctx.rgb(*PAPER); ctx.line_width = 1
-        for cx in range(-12, 13, 5):
-            ctx.rectangle(cx, -12, 2, 10).fill()
+        ctx.begin_path(); ctx.move_to(-9, -14); ctx.line_to(0, -22); ctx.line_to(9, -14); ctx.fill()  # pediment
+        ctx.line_width = 1                                                          # flagpole + flag
+        ctx.begin_path(); ctx.move_to(0, -22); ctx.line_to(0, -27); ctx.stroke()
+        ctx.rectangle(0, -27, 4, 2.5).fill()
+        ctx.rgb(*PAPER)                                                            # columns
+        for cx in range(-13, 14, 4):
+            ctx.rectangle(cx, -12, 1.5, 10).fill()
+        ctx.rgb(*INK); ctx.rectangle(-18, 0, 36, 2).fill()                         # steps
         ctx.restore()
 
     def _mon_pyramids(self, ctx, x, y, s):
+        # two pyramids, a sun, and a desert ground line
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.move_to(-20, 0); ctx.line_to(-6, -22); ctx.line_to(8, 0); ctx.fill()
-        ctx.begin_path(); ctx.move_to(2, 0); ctx.line_to(14, -16); ctx.line_to(24, 0); ctx.fill()
+        ctx.begin_path(); ctx.arc(11, -19, 5, 0, math.tau, False); ctx.fill()       # sun
+        ctx.begin_path(); ctx.move_to(-22, 0); ctx.line_to(-8, -20); ctx.line_to(6, 0); ctx.fill()
+        ctx.begin_path(); ctx.move_to(0, 0); ctx.line_to(12, -14); ctx.line_to(24, 0); ctx.fill()
+        ctx.line_width = 1.5
+        ctx.begin_path(); ctx.move_to(-24, 0); ctx.line_to(26, 0); ctx.stroke()
         ctx.restore()
 
     def _mon_pisa(self, ctx, x, y, s):
