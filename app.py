@@ -32,9 +32,15 @@ from app_components import Notification, YesNoDialog, TextDialog
 
 # Constants, tables and tiny helpers live in their own small module.
 try:
-    from .consts import *
+    from .consts import (
+        CONFIG_KEY, FEED_COOLDOWN_S, NUKE_EVERY, GLOW_S, DECAY_PER_MIN,
+        XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, DEFAULT_NAME,
+        GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR, now, clamp)
 except (ImportError, ValueError):  # imported as a top-level module
-    from consts import *
+    from consts import (
+        CONFIG_KEY, FEED_COOLDOWN_S, NUKE_EVERY, GLOW_S, DECAY_PER_MIN,
+        XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, DEFAULT_NAME,
+        GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR, now, clamp)
 
 # Hardware is optional so the app still imports under bare simulators.
 try:

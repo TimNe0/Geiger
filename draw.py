@@ -14,10 +14,10 @@ from app_components import clear_background
 
 try:
     from .consts import (PAPER, INK, GLOW, MAX_LEVEL, FIGHT_LEVEL,
-                         KAIJU_LEVEL, MONUMENTS, now, clamp)
+                         KAIJU_LEVEL, MONUMENTS, TAU, now, clamp)
 except (ImportError, ValueError):  # imported as a top-level module
     from consts import (PAPER, INK, GLOW, MAX_LEVEL, FIGHT_LEVEL,
-                        KAIJU_LEVEL, MONUMENTS, now, clamp)
+                        KAIJU_LEVEL, MONUMENTS, TAU, now, clamp)
 
 
 class RenderMixin:
@@ -104,16 +104,16 @@ class RenderMixin:
                 ctx.stroke()
         # abdomen + head
         ctx.begin_path()
-        ctx.arc(0, body * 0.3 + wob, body, 0, math.tau, False)
+        ctx.arc(0, body * 0.3 + wob, body, 0, TAU, False)
         ctx.fill()
         ctx.begin_path()
-        ctx.arc(0, -body * 0.7 + wob, body * 0.6, 0, math.tau, False)
+        ctx.arc(0, -body * 0.7 + wob, body * 0.6, 0, TAU, False)
         ctx.fill()
         # eyes (paper-coloured dots)
         ctx.rgb(*PAPER)
         for ex in (-0.25, 0.25):
             ctx.begin_path()
-            ctx.arc(ex * body, -body * 0.8 + wob, body * 0.12, 0, math.tau, False)
+            ctx.arc(ex * body, -body * 0.8 + wob, body * 0.12, 0, TAU, False)
             ctx.fill()
         ctx.restore()
 
@@ -189,7 +189,7 @@ class RenderMixin:
         ctx.rgb(*INK)
         ctx.line_width = 4
         ctx.begin_path()
-        ctx.arc(0, 0, 40, 0, math.tau, False)
+        ctx.arc(0, 0, 40, 0, TAU, False)
         ctx.stroke()
         # zig-zag crack widening
         ctx.line_width = 3
@@ -308,7 +308,7 @@ class RenderMixin:
         ctx.translate(x, y)
         ctx.scale(rx, ry)
         ctx.begin_path()
-        ctx.arc(0, 0, 1, 0, math.tau, False)
+        ctx.arc(0, 0, 1, 0, TAU, False)
         ctx.fill()
         ctx.restore()
 
@@ -318,7 +318,7 @@ class RenderMixin:
         for sx in (-1, 1):                       # wings
             self._ell(ctx, sx * 7, -3, 6, 4)
         self._ell(ctx, 0, 3, 4, 8)               # abdomen
-        ctx.begin_path(); ctx.arc(0, -7, 3.5, 0, math.tau, False); ctx.fill()  # head
+        ctx.begin_path(); ctx.arc(0, -7, 3.5, 0, TAU, False); ctx.fill()  # head
         ctx.line_width = 1.2                      # antennae
         for sx in (-1, 1):
             ctx.begin_path(); ctx.move_to(sx * 1.5, -10); ctx.line_to(sx * 4, -14); ctx.stroke()
@@ -328,8 +328,8 @@ class RenderMixin:
         # side profile: round body, ear, pointy snout right, long curly tail
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
         self._ell(ctx, 0, 0, 10, 6)
-        ctx.begin_path(); ctx.arc(8, -1, 4.5, 0, math.tau, False); ctx.fill()    # head
-        ctx.begin_path(); ctx.arc(7, -6, 2.6, 0, math.tau, False); ctx.fill()    # ear
+        ctx.begin_path(); ctx.arc(8, -1, 4.5, 0, TAU, False); ctx.fill()    # head
+        ctx.begin_path(); ctx.arc(7, -6, 2.6, 0, TAU, False); ctx.fill()    # ear
         ctx.begin_path(); ctx.move_to(12, -1); ctx.line_to(15, 1); ctx.line_to(12, 3); ctx.fill()  # snout
         ctx.line_width = 1.6                                                     # tail
         ctx.begin_path(); ctx.move_to(-10, 1); ctx.line_to(-17, -2); ctx.line_to(-20, 4); ctx.stroke()
@@ -342,7 +342,7 @@ class RenderMixin:
         # side profile standing: rounded body, head + floppy ear, tail, 4 legs
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
         self._ell(ctx, -2, -2, 11, 6)
-        ctx.begin_path(); ctx.arc(10, -5, 4.5, 0, math.tau, False); ctx.fill()   # head
+        ctx.begin_path(); ctx.arc(10, -5, 4.5, 0, TAU, False); ctx.fill()   # head
         ctx.begin_path(); ctx.move_to(13, -4); ctx.line_to(17, -3); ctx.line_to(13, -1); ctx.fill()  # snout
         ctx.begin_path(); ctx.move_to(8, -9); ctx.line_to(7, -3); ctx.line_to(11, -4); ctx.fill()    # ear
         ctx.line_width = 2.5                                                     # tail up
@@ -362,7 +362,7 @@ class RenderMixin:
         # solid silhouette: round head, tapered torso, arms at sides, two legs
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
         leg = 13 if stubby else 16
-        ctx.begin_path(); ctx.arc(0, -13, 5, 0, math.tau, False); ctx.fill()     # head
+        ctx.begin_path(); ctx.arc(0, -13, 5, 0, TAU, False); ctx.fill()     # head
         ctx.begin_path()                                                         # torso
         ctx.move_to(-5, -7); ctx.line_to(5, -7)
         ctx.line_to(6, 4); ctx.line_to(-6, 4); ctx.fill()
@@ -377,9 +377,9 @@ class RenderMixin:
     def _icon_drop(self, ctx, x, y, s):
         # teardrop: round bottom + pointed top, with a paper highlight
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.arc(0, 4, 8, 0, math.tau, False); ctx.fill()
+        ctx.begin_path(); ctx.arc(0, 4, 8, 0, TAU, False); ctx.fill()
         ctx.begin_path(); ctx.move_to(-6, 0); ctx.line_to(0, -13); ctx.line_to(6, 0); ctx.fill()
-        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(-3, 5, 2.2, 0, math.tau, False); ctx.fill()
+        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(-3, 5, 2.2, 0, TAU, False); ctx.fill()
         ctx.restore()
 
     def _icon_web(self, ctx, x, y, s):
@@ -387,13 +387,13 @@ class RenderMixin:
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK); ctx.line_width = 1.2
         n = 8
         for i in range(n):
-            a = i * math.tau / n
+            a = i * TAU / n
             ctx.begin_path(); ctx.move_to(0, 0)
             ctx.line_to(math.cos(a) * 12, math.sin(a) * 12); ctx.stroke()
         for rr in (4, 8, 12):
             ctx.begin_path()
             for i in range(n + 1):
-                a = i * math.tau / n
+                a = i * TAU / n
                 px, py = math.cos(a) * rr, math.sin(a) * rr
                 if i == 0:
                     ctx.move_to(px, py)
@@ -414,9 +414,9 @@ class RenderMixin:
         ctx.begin_path(); ctx.move_to(-9, -3); ctx.line_to(9, -3); ctx.stroke()
         ctx.begin_path(); ctx.move_to(-9, 4); ctx.line_to(9, 4); ctx.stroke()
         ctx.rgb(*PAPER)                           # trefoil
-        ctx.begin_path(); ctx.arc(0, 0, 1.6, 0, math.tau, False); ctx.fill()
+        ctx.begin_path(); ctx.arc(0, 0, 1.6, 0, TAU, False); ctx.fill()
         for a in range(3):
-            ang = a * math.tau / 3 - math.pi / 2
+            ang = a * TAU / 3 - math.pi / 2
             ctx.begin_path(); ctx.move_to(0, 0)
             ctx.arc(0, 0, 5.5, ang - 0.5, ang + 0.5, False)
             ctx.line_to(0, 0); ctx.fill()
@@ -442,14 +442,14 @@ class RenderMixin:
         ctx.rectangle(-8, -4, 16, 6).fill()      # pedestal base
         ctx.rectangle(-5, -10, 10, 6).fill()     # pedestal top
         ctx.begin_path(); ctx.move_to(-6, -10); ctx.line_to(0, -30); ctx.line_to(6, -10); ctx.fill()  # robe
-        ctx.begin_path(); ctx.arc(0, -33, 3.5, 0, math.tau, False); ctx.fill()        # head
+        ctx.begin_path(); ctx.arc(0, -33, 3.5, 0, TAU, False); ctx.fill()        # head
         ctx.line_width = 1.2                                                          # crown spikes
         for a in (-0.9, -0.45, 0, 0.45, 0.9):
             ctx.begin_path(); ctx.move_to(0, -33)
             ctx.line_to(math.sin(a) * 9, -33 - math.cos(a) * 9); ctx.stroke()
         ctx.line_width = 2.5                                                          # torch arm
         ctx.begin_path(); ctx.move_to(3, -26); ctx.line_to(9, -40); ctx.stroke()
-        ctx.begin_path(); ctx.arc(9, -42, 2.5, 0, math.tau, False); ctx.fill()        # flame
+        ctx.begin_path(); ctx.arc(9, -42, 2.5, 0, TAU, False); ctx.fill()        # flame
         ctx.restore()
 
     def _mon_big_ben(self, ctx, x, y, s):
@@ -457,7 +457,7 @@ class RenderMixin:
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
         ctx.rectangle(-6, -34, 12, 34).fill()
         ctx.begin_path(); ctx.move_to(-7, -34); ctx.line_to(0, -46); ctx.line_to(7, -34); ctx.fill()  # spire
-        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(0, -26, 3.5, 0, math.tau, False); ctx.fill()       # face
+        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(0, -26, 3.5, 0, TAU, False); ctx.fill()       # face
         ctx.rgb(*INK); ctx.line_width = 1
         ctx.begin_path(); ctx.move_to(0, -26); ctx.line_to(0, -28.5); ctx.stroke()
         ctx.begin_path(); ctx.move_to(0, -26); ctx.line_to(2, -26); ctx.stroke()
@@ -480,7 +480,7 @@ class RenderMixin:
     def _mon_pyramids(self, ctx, x, y, s):
         # two pyramids, a sun, and a desert ground line
         ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.arc(11, -19, 5, 0, math.tau, False); ctx.fill()       # sun
+        ctx.begin_path(); ctx.arc(11, -19, 5, 0, TAU, False); ctx.fill()       # sun
         ctx.begin_path(); ctx.move_to(-22, 0); ctx.line_to(-8, -20); ctx.line_to(6, 0); ctx.fill()
         ctx.begin_path(); ctx.move_to(0, 0); ctx.line_to(12, -14); ctx.line_to(24, 0); ctx.fill()
         ctx.line_width = 1.5

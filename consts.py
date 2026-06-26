@@ -5,6 +5,9 @@
 
 import time
 
+# MicroPython's math module only provides pi and e (no tau), so define our own.
+TAU = 6.283185307179586
+
 CONFIG_KEY = "geiger_spider"
 
 # --- Tunable game timings (retune on site for the event) --------------------

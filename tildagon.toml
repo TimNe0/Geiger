@@ -26,4 +26,4 @@ description = "Mutant-spider Tamagotchi: feed, water and play to grow a hatchlin
 # Version number of your app. If you push a commit where this number is
 # increased, we interpret this as a new version being released.
 # Version number must be a string!
-version = "0.1.1"
+version = "0.1.2"
