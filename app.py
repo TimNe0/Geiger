@@ -34,13 +34,15 @@ from app_components import Notification, YesNoDialog, TextDialog
 try:
     from .consts import (
         CONFIG_KEY, FEED_COOLDOWN_S, NUKE_EVERY, GLOW_S, DECAY_PER_MIN,
-        XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, DEFAULT_NAME,
-        GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR, now, clamp)
+        XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, LEVELS_PER_STAGE,
+        DEFAULT_NAME, GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR,
+        POOP_SPOTS, now, clamp)
 except (ImportError, ValueError):  # imported as a top-level module
     from consts import (
         CONFIG_KEY, FEED_COOLDOWN_S, NUKE_EVERY, GLOW_S, DECAY_PER_MIN,
-        XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, DEFAULT_NAME,
-        GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR, now, clamp)
+        XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, LEVELS_PER_STAGE,
+        DEFAULT_NAME, GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR,
+        POOP_SPOTS, now, clamp)
 
 # Hardware is optional so the app still imports under bare simulators.
 try:
@@ -90,7 +92,7 @@ class GeigerApp(RenderMixin, app.App):
         self.pet = self._load()
 
         # UI / view state machine.
-        #   "hatching" "naming" "main" "menu" "feed" "water" "play" "fight" "kaiju"
+        #   "hatching" "naming" "main" "menu" "feed" "play" "fight" "kaiju"
         self.view = "main"
         self.menu_index = 0
         self.menu_items = []
@@ -103,12 +105,20 @@ class GeigerApp(RenderMixin, app.App):
         self.message = ""       # transient flavour text
         self.message_until = 0.0
 
+        # idle wandering on the main screen
+        self.wander_x = 0.0
+        self.wander_y = 12.0
+        self.wander_tx = 0.0
+        self.wander_ty = 12.0
+        self.wander_timer = 0.0
+
         # mini-game scratch state
         self.spider_x = 0.0
+        self.spider_y = 40.0
         self.prey = []
         self.feed_is_nuke = False
         self.feed_caught = False
-        self.action_t = 0.0      # water/play animation timer
+        self.action_t = 0.0      # play animation timer
         self.played_shake = False
         self.fight_phase = 0.0
         self.fight_ohno = ""
@@ -134,10 +144,11 @@ class GeigerApp(RenderMixin, app.App):
             "level": 1,
             "xp": 0,
             "hunger": 80,
-            "thirst": 80,
+            "clean": 80,
             "happiness": 80,
             "size_stage": 1,
             "feed_count": 0,
+            "poop": 0,
             "last_feed": 0.0,
             "last_seen": now(),
             "glow_until": 0.0,
@@ -155,6 +166,15 @@ class GeigerApp(RenderMixin, app.App):
             # merge saved over defaults so new fields survive old saves
             pet.update(saved)
         pet["size_stage"] = self._size_for_level(pet.get("level", 1))
+        # The badge clock is not a stable wall clock across reboots, so any
+        # persisted absolute timestamp can read as "in the future" after a
+        # restart. The green glow is a transient effect -- never restore it
+        # (this is what made the spider glow/flash forever after reopening).
+        pet["glow_until"] = 0.0
+        n = now()
+        for key in ("last_feed", "last_seen"):
+            if pet.get(key, 0) > n:
+                pet[key] = n
         return pet
 
     def _save(self):
@@ -167,7 +187,7 @@ class GeigerApp(RenderMixin, app.App):
 
     # --------------------------------------------------------------- derived
     def _size_for_level(self, level):
-        return clamp(1 + (level - 1) // 10, 1, 5)
+        return clamp(1 + (level - 1) // LEVELS_PER_STAGE, 1, 5)
 
     def _prey_for_level(self, level):
         prey = PREY_BANDS[0]
@@ -196,18 +216,21 @@ class GeigerApp(RenderMixin, app.App):
         loss = (elapsed / 60.0) * DECAY_PER_MIN
         if loss <= 0:
             return
-        for stat in ("hunger", "thirst", "happiness"):
+        for stat in ("hunger", "clean", "happiness"):
             self.pet[stat] = clamp(self.pet[stat] - loss, 0, 100)
         self.pet["last_seen"] = now()
 
     def _decay_live(self, delta):
         # gentle live decay so the spider gets needy while you watch
         loss = (delta / 60.0) * DECAY_PER_MIN * 0.5
-        for stat in ("hunger", "thirst", "happiness"):
+        for stat in ("hunger", "clean", "happiness"):
             self.pet[stat] = clamp(self.pet[stat] - loss, 0, 100)
+        # standing poop drags cleanliness down faster
+        if self.pet.get("poop", 0):
+            self.pet["clean"] = clamp(self.pet["clean"] - loss * self.pet["poop"], 0, 100)
 
     def _neediness(self):
-        return (self.pet["hunger"] + self.pet["thirst"] + self.pet["happiness"]) / 3.0
+        return (self.pet["hunger"] + self.pet["clean"] + self.pet["happiness"]) / 3.0
 
     # ----------------------------------------------------------------- xp / level
     def _grant_xp(self, amount):
@@ -308,8 +331,6 @@ class GeigerApp(RenderMixin, app.App):
             self._update_main(dt)
         elif self.view == "feed":
             self._update_feed(dt)
-        elif self.view == "water":
-            self._update_action(dt, "water")
         elif self.view == "play":
             self._update_action(dt, "play")
         elif self.view == "fight":
@@ -376,12 +397,24 @@ class GeigerApp(RenderMixin, app.App):
     # ----------------------------------------------------------------- main/menu
     def _build_menu(self):
         if self.pet["level"] >= KAIJU_LEVEL:
-            return ["Rampage", "Rename", "Reset"]
+            return ["Rampage", "Clean", "Rename", "Reset"]
         if self.pet["level"] >= FIGHT_LEVEL:
-            return ["Fight", "Rename", "Reset"]
-        return ["Feed", "Water", "Play", "Rename", "Reset"]
+            return ["Fight", "Clean", "Rename", "Reset"]
+        return ["Feed", "Clean", "Play", "Rename", "Reset"]
+
+    def _update_wander(self, dt):
+        # gentle idle drift around the centre of the screen
+        self.wander_timer -= dt
+        if self.wander_timer <= 0:
+            self.wander_tx = random.uniform(-42, 42)
+            self.wander_ty = random.uniform(-6, 38)
+            self.wander_timer = random.uniform(1.5, 3.5)
+        ease = min(1.0, dt * 1.2)
+        self.wander_x += (self.wander_tx - self.wander_x) * ease
+        self.wander_y += (self.wander_ty - self.wander_y) * ease
 
     def _update_main(self, dt):
+        self._update_wander(dt)
         if self.view == "main":
             if self.button_states.get(BUTTON_TYPES["CONFIRM"]):
                 self.button_states.clear()
@@ -413,8 +446,8 @@ class GeigerApp(RenderMixin, app.App):
     def _activate_menu(self, item):
         if item == "Feed":
             self._start_feed()
-        elif item == "Water":
-            self._do_water()
+        elif item == "Clean":
+            self._do_clean()
         elif item == "Play":
             self._do_play()
         elif item == "Fight":
@@ -427,10 +460,20 @@ class GeigerApp(RenderMixin, app.App):
         elif item == "Reset":
             self._confirm_reset()
 
-    # ---------------------------------------------------------------- water/play
-    def _do_water(self):
-        self.view = "water"
-        self.action_t = 1.2
+    # ---------------------------------------------------------------- clean/play
+    def _do_clean(self):
+        had_poop = self.pet.get("poop", 0)
+        self.pet["poop"] = 0
+        self.pet["clean"] = 100
+        self.pet["happiness"] = clamp(self.pet["happiness"] + 8, 0, 100)
+        self._grant_xp(10)
+        if had_poop:
+            self._flash_message("Sparkling! Poop cleared.")
+        else:
+            self._flash_message("All tidy already.")
+        self._notify("Cleaned")
+        self._save()
+        self.view = "main"
 
     def _do_play(self):
         self.view = "play"
@@ -448,18 +491,12 @@ class GeigerApp(RenderMixin, app.App):
             self._finish_action(kind)
 
     def _finish_action(self, kind):
-        if kind == "water":
-            self.pet["thirst"] = clamp(self.pet["thirst"] + 35, 0, 100)
-            self._grant_xp(10)
-            self._flash_message("Slurp! Thirst restored.")
-            self._notify("Watered")
-        else:
-            boost = 45 if self.played_shake else 30
-            self.pet["happiness"] = clamp(self.pet["happiness"] + boost, 0, 100)
-            self._grant_xp(10)
-            self.shake = 2.0
-            self._flash_message("Wheee! Happy spider.")
-            self._notify("Played")
+        boost = 45 if self.played_shake else 30
+        self.pet["happiness"] = clamp(self.pet["happiness"] + boost, 0, 100)
+        self._grant_xp(10)
+        self.shake = 2.0
+        self._flash_message("Wheee! Happy spider.")
+        self._notify("Played")
         self._save()
         self.view = "main"
 
@@ -470,12 +507,13 @@ class GeigerApp(RenderMixin, app.App):
         except Exception:
             return 1.0
 
-    def _imu_tilt_x(self):
+    def _imu_tilt(self):
+        # returns (x, y) tilt in roughly -1..1 for 2D steering
         try:
             x, y, z = imu.acc_read()
-            return clamp(x / 9.81, -1, 1)
+            return clamp(x / 9.81, -1, 1), clamp(y / 9.81, -1, 1)
         except Exception:
-            return 0.0
+            return 0.0, 0.0
 
     # ------------------------------------------------------------------- feed
     def _start_feed(self):
@@ -486,15 +524,16 @@ class GeigerApp(RenderMixin, app.App):
         self.feed_is_nuke = self._next_feed_is_nuke()
         self.feed_caught = False
         self.spider_x = 0.0
+        self.spider_y = 40.0
         self.prey = []
-        # spawn a few prey targets moving across the screen
+        # spawn a few prey targets drifting around the round screen
         n = 1 if self.feed_is_nuke else 3
         for _ in range(n):
             self.prey.append({
-                "x": random.uniform(-90, 90),
-                "y": random.uniform(-70, 70),
+                "x": random.uniform(-80, 80),
+                "y": random.uniform(-80, 80),
                 "vx": random.uniform(-50, 50),
-                "vy": random.uniform(-30, 30),
+                "vy": random.uniform(-50, 50),
                 "alive": True,
             })
         self.view = "feed"
@@ -507,35 +546,48 @@ class GeigerApp(RenderMixin, app.App):
             self.view = "main"
             return
 
-        # steer the spider: buttons or tilt
-        steer = 0.0
+        # steer the spider in 2D: buttons or tilt
+        sx = 0.0
+        sy = 0.0
         if self.button_states.get(BUTTON_TYPES["LEFT"]):
-            steer -= 1.0
+            sx -= 1.0
         if self.button_states.get(BUTTON_TYPES["RIGHT"]):
-            steer += 1.0
-        if steer == 0.0 and _HAS_IMU:
-            steer = self._imu_tilt_x()
-        self.spider_x = clamp(self.spider_x + steer * 160 * dt, -100, 100)
+            sx += 1.0
+        if self.button_states.get(BUTTON_TYPES["UP"]):
+            sy -= 1.0
+        if self.button_states.get(BUTTON_TYPES["DOWN"]):
+            sy += 1.0
+        if sx == 0.0 and sy == 0.0 and _HAS_IMU:
+            sx, sy = self._imu_tilt()
+        self.spider_x += sx * 150 * dt
+        self.spider_y += sy * 150 * dt
+        # keep the spider inside the round screen
+        r = math.sqrt(self.spider_x ** 2 + self.spider_y ** 2)
+        if r > 95:
+            self.spider_x = self.spider_x * 95 / r
+            self.spider_y = self.spider_y * 95 / r
 
-        # move prey
+        # move prey, bouncing off the circular edge
         for p in self.prey:
             if not p["alive"]:
                 continue
             p["x"] += p["vx"] * dt
             p["y"] += p["vy"] * dt
-            if abs(p["x"]) > 100:
+            if p["x"] ** 2 + p["y"] ** 2 > 90 ** 2:
                 p["vx"] *= -1
-            if abs(p["y"]) > 90:
                 p["vy"] *= -1
+                p["x"] += p["vx"] * dt
+                p["y"] += p["vy"] * dt
 
-        # pounce
+        # pounce -- a tight catch radius
         if self.button_states.get(BUTTON_TYPES["CONFIRM"]):
             self.button_states.clear()
-            spider_y = 70
             for p in self.prey:
                 if not p["alive"]:
                     continue
-                if abs(p["x"] - self.spider_x) < 26 and abs(p["y"] - spider_y) < 70:
+                dx = p["x"] - self.spider_x
+                dy = p["y"] - self.spider_y
+                if dx * dx + dy * dy < 15 * 15:
                     p["alive"] = False
                     self._on_catch()
                     return
@@ -545,6 +597,9 @@ class GeigerApp(RenderMixin, app.App):
         self.pet["feed_count"] += 1
         self.pet["last_feed"] = now()
         self.pet["hunger"] = clamp(self.pet["hunger"] + 40, 0, 100)
+        # what goes in must come out: a fresh poop appears on the main screen
+        self.pet["poop"] = min(self.pet.get("poop", 0) + 1, len(POOP_SPOTS))
+        self.pet["clean"] = clamp(self.pet["clean"] - 10, 0, 100)
         if self.feed_is_nuke:
             self.pet["glow_until"] = now() + GLOW_S
             self._grant_xp(int(XP_PER_LEVEL * 2.5))  # upskill: ~2-3 levels

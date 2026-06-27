@@ -13,11 +13,11 @@ import random
 from app_components import clear_background
 
 try:
-    from .consts import (PAPER, INK, GLOW, MAX_LEVEL, FIGHT_LEVEL,
-                         KAIJU_LEVEL, MONUMENTS, TAU, now, clamp)
+    from .consts import (PAPER, INK, GLOW, POOP, MAX_LEVEL, FIGHT_LEVEL,
+                         KAIJU_LEVEL, MONUMENTS, POOP_SPOTS, TAU, now)
 except (ImportError, ValueError):  # imported as a top-level module
-    from consts import (PAPER, INK, GLOW, MAX_LEVEL, FIGHT_LEVEL,
-                        KAIJU_LEVEL, MONUMENTS, TAU, now, clamp)
+    from consts import (PAPER, INK, GLOW, POOP, MAX_LEVEL, FIGHT_LEVEL,
+                        KAIJU_LEVEL, MONUMENTS, POOP_SPOTS, TAU, now)
 
 
 class RenderMixin:
@@ -37,7 +37,7 @@ class RenderMixin:
             self._draw_hatching(ctx)
         elif self.view == "feed":
             self._draw_feed(ctx)
-        elif self.view in ("water", "play"):
+        elif self.view == "play":
             self._draw_action(ctx, self.view)
         elif self.view == "fight":
             self._draw_fight(ctx)
@@ -122,7 +122,11 @@ class RenderMixin:
         pet = self.pet
         glowing = self._is_glowing()
         size = self.pet["size_stage"]
-        self._draw_spider(ctx, 0, 5, 0.8 + size * 0.25, glowing)
+
+        # poop sits on the floor; draw it under the wandering spider
+        self._draw_poop(ctx, pet.get("poop", 0))
+        self._draw_spider(ctx, self.wander_x, self.wander_y,
+                          0.8 + size * 0.25, glowing)
 
         # level readout in the upper-left arc
         self._text(ctx, "LV %d/%d" % (pet["level"], MAX_LEVEL), -62, -88, 18)
@@ -134,7 +138,7 @@ class RenderMixin:
 
         # stat bars
         self._stat_bar(ctx, "HUN", pet["hunger"], 70)
-        self._stat_bar(ctx, "THI", pet["thirst"], 86)
+        self._stat_bar(ctx, "CLN", pet["clean"], 86)
         self._stat_bar(ctx, "HAP", pet["happiness"], 102)
 
         # feeds-until-nuke / apex banner
@@ -208,6 +212,8 @@ class RenderMixin:
 
     # ----- feed mini-game
     def _draw_feed(self, ctx):
+        # the round screen IS the web: spokes + rings across the whole face
+        self._draw_web_bg(ctx)
         if self.feed_is_nuke:
             for p in self.prey:
                 if p["alive"]:
@@ -219,23 +225,42 @@ class RenderMixin:
                 if p["alive"]:
                     getattr(self, "_icon_" + prey_draw)(ctx, p["x"], p["y"], 0.9)
             self._text(ctx, "catch the %s!" % label, 0, -98, 14)
-        # spider at the bottom, steerable
-        self._draw_spider(ctx, self.spider_x, 70, 0.7, self._is_glowing())
-        self._text(ctx, "E/B steer  C pounce  F back", 0, 104, 11)
+        # the steerable spider, anywhere on the web
+        self._draw_spider(ctx, self.spider_x, self.spider_y, 0.65, self._is_glowing())
+        self._text(ctx, "arrows steer  C pounce", 0, 104, 11)
 
-    # ----- water / play
+    def _draw_web_bg(self, ctx):
+        ctx.save()
+        ctx.rgb(*INK)
+        ctx.line_width = 1
+        R = 112
+        n = 12
+        for i in range(n):
+            a = i * TAU / n
+            ctx.begin_path()
+            ctx.move_to(0, 0)
+            ctx.line_to(math.cos(a) * R, math.sin(a) * R)
+            ctx.stroke()
+        for rr in range(18, R, 20):
+            ctx.begin_path()
+            for i in range(n + 1):
+                a = i * TAU / n
+                px, py = math.cos(a) * rr, math.sin(a) * rr
+                if i == 0:
+                    ctx.move_to(px, py)
+                else:
+                    ctx.line_to(px, py)
+            ctx.stroke()
+        ctx.restore()
+
+    # ----- play (dangle a thread on a web)
     def _draw_action(self, ctx, kind):
         self._draw_spider(ctx, 0, 24, 1.3, self._is_glowing())
-        prog = 1.0 - clamp(self.action_t / 1.2, 0, 1)
-        if kind == "water":
-            self._icon_drop(ctx, 0, -56 + prog * 56, 1.3)
-            self._text(ctx, "watering...", 0, -96, 15)
-        else:
-            self._icon_web(ctx, 0, -48, 1.4)
-            label = "shake to play!" if self._has_imu else "playing..."
-            self._text(ctx, label, 0, -96, 15)
-            if self.played_shake:
-                self._text(ctx, "wheee!", 0, 92, 14)
+        self._icon_web(ctx, 0, -48, 1.4)
+        label = "shake to play!" if self._has_imu else "playing..."
+        self._text(ctx, label, 0, -96, 15)
+        if self.played_shake:
+            self._text(ctx, "wheee!", 0, 92, 14)
         self._text(ctx, "F: skip", 0, 110, 11)
 
     # ----- fight
@@ -288,14 +313,32 @@ class RenderMixin:
         self._text(ctx, "Monuments destroyed: %d" % self.pet.get("monuments_destroyed", 0),
                    0, 106, 12)
 
-    # ----- transient overlay text
+    # ----- transient overlay text (lower band so it's easy to read)
     def _draw_overlays(self, ctx):
         if self.message and now() < self.message_until:
+            y = -48
             ctx.save()
             ctx.rgb(*PAPER)
-            ctx.rectangle(-118, 116, 236, 0)  # noop keep-state
+            ctx.rectangle(-104, y - 13, 208, 26).fill()
+            ctx.rgb(*INK)
+            ctx.line_width = 1
+            ctx.begin_path(); ctx.move_to(-104, y - 13); ctx.line_to(104, y - 13); ctx.stroke()
+            ctx.begin_path(); ctx.move_to(-104, y + 13); ctx.line_to(104, y + 13); ctx.stroke()
             ctx.restore()
-            self._text(ctx, self.message, 0, -118 + 10, 13, colour=(0.1, 0.4, 0.1))
+            self._text(ctx, self.message, 0, y, 13, colour=(0.05, 0.4, 0.05))
+
+    # ----- poop on the floor (the one brown thing), cleared by Clean
+    def _draw_poop(self, ctx, count):
+        if not count:
+            return
+        ctx.save()
+        ctx.rgb(*POOP)
+        for i in range(min(count, len(POOP_SPOTS))):
+            x, y = POOP_SPOTS[i]
+            self._ell(ctx, x, y + 2, 6, 3)      # coiled little pile
+            self._ell(ctx, x, y - 1, 4.6, 2.6)
+            self._ell(ctx, x, y - 3.5, 3, 2)
+        ctx.restore()
 
     # ============================================================ icon drawing
     # Ink silhouettes matching the supplied geiger-icons.png sheet. Each takes
@@ -372,14 +415,6 @@ class RenderMixin:
         ctx.line_width = 3.5                                                     # legs
         ctx.begin_path(); ctx.move_to(-2, 4); ctx.line_to(-4, leg); ctx.stroke()
         ctx.begin_path(); ctx.move_to(2, 4); ctx.line_to(4, leg); ctx.stroke()
-        ctx.restore()
-
-    def _icon_drop(self, ctx, x, y, s):
-        # teardrop: round bottom + pointed top, with a paper highlight
-        ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rgb(*INK)
-        ctx.begin_path(); ctx.arc(0, 4, 8, 0, TAU, False); ctx.fill()
-        ctx.begin_path(); ctx.move_to(-6, 0); ctx.line_to(0, -13); ctx.line_to(6, 0); ctx.fill()
-        ctx.rgb(*PAPER); ctx.begin_path(); ctx.arc(-3, 5, 2.2, 0, TAU, False); ctx.fill()
         ctx.restore()
 
     def _icon_web(self, ctx, x, y, s):

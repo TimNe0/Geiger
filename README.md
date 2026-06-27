@@ -2,36 +2,40 @@
 
 A pet **Tamagotchi spider** for the EMF Camp **Tildagon badge** (ESP32-S3,
 MicroPython, round 240×240 screen). It starts as a tiny hatchling and grows
-into an unstoppable apex predator. Feed it, water it and play with it to raise
-its **level (1–50)** — and every 10th feed is **nuclear waste** that upskills
-it and makes it glow radioactive green.
+into an unstoppable apex predator. Feed it, clean up after it and play with it
+to raise its **level (1–25)** — and every 10th feed is **nuclear waste** that
+upskills it and makes it glow radioactive green.
 
 Tuned for a 3-day event: progression is fast, roughly **one level per feed**,
-about a minute apart.
+with a 30-second feed cooldown.
 
 ## The life of a spider
 
+The spider gains a size step and a new prey tier every **5 levels**:
+
 | Level | What happens |
 |-------|--------------|
-| 1–9   | Hatchling. Hunts **flies**. |
-| 10–19 | Bigger. Hunts **rats**. |
-| 20–29 | Bigger still. Hunts **dogs**. |
-| 30–39 | Hunts **children**. |
-| 40–49 | **FIGHT MODE** — stops eating, just battles humans (and always wins). |
-| 50    | **KAIJU MODE** — colossal. Rampages across the world's monuments. |
+| 1–5   | Hatchling. Hunts **flies**. |
+| 6–10  | Bigger. Hunts **rats**. |
+| 11–15 | Bigger still. Hunts **dogs**. |
+| 16–20 | Hunts **children**. |
+| 21–24 | **FIGHT MODE** — battles humans (and always wins). |
+| 25    | **KAIJU MODE** — colossal. Rampages across the world's monuments. |
 
 Every **10th feed** is a glowing **☢ nuclear-waste barrel** instead of normal
-prey (taken from the swap shop table). Catching it grants a big XP boost and a few seconds of green glow (and
+prey. Catching it grants a big XP boost and a few seconds of green glow (and
 flashes the badge LEDs green).
 
-The spider **can never die** — neglect just makes it grumpy and sluggish.
+The spider wanders the screen between actions, and **poops after eating** —
+hit **Clean** to clear the mess and restore its cleanliness. It **can never
+die**; neglect just makes it grumpy and sluggish.
 
 ## Art direction
 
-1970s screen-print look: bold **black "ink"** on a flat **light-blue "paper"**
+1970s screen-print look: bold **black "ink"** on a flat **white "paper"**
 background. Everything (spider, prey, monuments) is drawn procedurally with the
-`ctx` canvas. The only colour that breaks the scheme is the radioactive green
-glow.
+`ctx` canvas. The only colours that break the scheme are the radioactive green
+glow and the one brown thing on screen.
 
 ## Controls (standard Tildagon button set)
 
@@ -45,8 +49,10 @@ glow.
 | F | `CANCEL` | Back / no / minimise the app |
 
 - From the main screen: **C** opens the action menu, **F** exits.
-- **Feed** launches a short chase mini-game — steer the spider with **E/B**
-  (or tilt the badge via the IMU) and **C** to pounce.
+- **Feed** turns the round screen into a spider **web** and launches a chase —
+  steer the spider in any direction with the **arrow buttons** (or tilt the
+  badge via the IMU) and **C** to pounce. The catch radius is tight.
+- **Clean** clears any poop and restores cleanliness.
 - **Play** boosts happiness; give the badge a **shake** for a bigger boost.
 - **Rename** uses the badge's built-in text dialog.
 
