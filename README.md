@@ -22,13 +22,17 @@ The spider gains a size step and a new prey tier every **5 levels**:
 | 21–24 | **FIGHT MODE** — battles humans (and always wins). |
 | 25    | **KAIJU MODE** — colossal. Rampages across the world's monuments. |
 
-Every **10th feed** is a glowing **☢ nuclear-waste barrel** instead of normal
+Every **5th feed** is a glowing **☢ nuclear-waste barrel** instead of normal
 prey. Catching it grants a big XP boost and a few seconds of green glow (and
 flashes the badge LEDs green).
 
 The spider wanders the screen between actions, and **poops after eating** —
-hit **Clean** to clear the mess and restore its cleanliness. It **can never
-die**; neglect just makes it grumpy and sluggish.
+hit **Clean** to clear the mess and restore its cleanliness. Let a stat run
+low and its bar turns **red**; leave the spider **neglected** too long and it
+starts **losing levels** (floored at 1 — it never dies).
+
+At level 25 the **Kaiju** rampage runs until every monument has fallen, then
+shows a **WORLD CONQUERED** finale; press **C** to raze them all again.
 
 ## Art direction
 
@@ -53,7 +57,8 @@ glow and the one brown thing on screen.
   steer the spider in any direction with the **arrow buttons** (or tilt the
   badge via the IMU) and **C** to pounce. The catch radius is tight.
 - **Clean** clears any poop and restores cleanliness.
-- **Play** boosts happiness; give the badge a **shake** for a bigger boost.
+- **Play** boosts happiness — **shake** the badge during the session; the more
+  real shakes, the bigger the boost (a tiny nudge won't end it early).
 - **Rename** uses the badge's built-in text dialog.
 
 ## Hardware used

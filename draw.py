@@ -13,11 +13,11 @@ import random
 from app_components import clear_background
 
 try:
-    from .consts import (PAPER, INK, GLOW, POOP, MAX_LEVEL, FIGHT_LEVEL,
-                         KAIJU_LEVEL, MONUMENTS, POOP_SPOTS, TAU, now)
+    from .consts import (PAPER, INK, GLOW, RED, POOP, STAT_LOW, MAX_LEVEL,
+                         FIGHT_LEVEL, KAIJU_LEVEL, MONUMENTS, POOP_SPOTS, TAU, now)
 except (ImportError, ValueError):  # imported as a top-level module
-    from consts import (PAPER, INK, GLOW, POOP, MAX_LEVEL, FIGHT_LEVEL,
-                        KAIJU_LEVEL, MONUMENTS, POOP_SPOTS, TAU, now)
+    from consts import (PAPER, INK, GLOW, RED, POOP, STAT_LOW, MAX_LEVEL,
+                        FIGHT_LEVEL, KAIJU_LEVEL, MONUMENTS, POOP_SPOTS, TAU, now)
 
 
 class RenderMixin:
@@ -123,48 +123,54 @@ class RenderMixin:
         glowing = self._is_glowing()
         size = self.pet["size_stage"]
 
-        # poop sits on the floor; draw it under the wandering spider
+        # poop on the floor, then the wandering spider over it
         self._draw_poop(ctx, pet.get("poop", 0))
         self._draw_spider(ctx, self.wander_x, self.wander_y,
                           0.8 + size * 0.25, glowing)
 
-        # level readout in the upper-left arc
-        self._text(ctx, "LV %d/%d" % (pet["level"], MAX_LEVEL), -62, -88, 18)
-        self._text(ctx, pet["name"], 0, -64, 22)
-
-        # prey icon + label for current tier
+        # header: name + level, centred near the top (centred text stays
+        # readable even where the round screen narrows)
+        self._text(ctx, pet["name"], 0, -94, 18)
+        self._text(ctx, "LV %d/%d" % (pet["level"], MAX_LEVEL), 0, -74, 15)
         _, prey_label, prey_draw = self._prey_for_level(pet["level"])
-        getattr(self, "_icon_" + prey_draw)(ctx, 78, -78, 0.8)
+        getattr(self, "_icon_" + prey_draw)(ctx, 58, -74, 0.7)
 
-        # stat bars
-        self._stat_bar(ctx, "HUN", pet["hunger"], 70)
-        self._stat_bar(ctx, "CLN", pet["clean"], 86)
-        self._stat_bar(ctx, "HAP", pet["happiness"], 102)
-
-        # feeds-until-nuke / apex banner
+        # mode / next-nuke banner
         if pet["level"] >= KAIJU_LEVEL:
-            self._text(ctx, "APEX PREDATOR", 0, -100, 14)
+            self._text(ctx, "APEX PREDATOR", 0, -54, 13)
         elif pet["level"] >= FIGHT_LEVEL:
-            self._text(ctx, "FIGHT MODE", 0, -100, 14)
+            self._text(ctx, "FIGHT MODE", 0, -54, 13)
         else:
-            self._text(ctx, "next %s: %d feeds" % (chr(0x2622), self._feeds_until_nuke()),
-                       0, -100, 13)
+            self._text(ctx, "next %s in %d feeds" % (chr(0x2622), self._feeds_until_nuke()),
+                       0, -54, 12)
+
+        # stat bars (one centred row along the bottom)
+        self._draw_stats(ctx)
 
         if self.view == "menu":
             self._draw_menu(ctx)
         else:
-            self._text(ctx, "C: menu  F: exit", 0, 108, 12)
+            self._text(ctx, "C menu", 0, 104, 11)
 
-    def _stat_bar(self, ctx, label, value, y):
-        x = -100
-        w = 70
-        self._text(ctx, label, x - 4, y, 11, centre=False)
+    def _draw_stats(self, ctx):
+        stats = (("HUN", self.pet["hunger"]),
+                 ("CLN", self.pet["clean"]),
+                 ("HAP", self.pet["happiness"]))
+        centres = (-48, 0, 48)
+        y = 76
+        bw, bh = 36, 9
         ctx.save()
-        ctx.rgb(*INK)
-        ctx.line_width = 1.5
-        ctx.rectangle(x + 22, y - 5, w, 9).stroke()
-        ctx.rectangle(x + 22, y - 5, w * (value / 100.0), 9).fill()
+        ctx.line_width = 1.2
+        for (label, val), xc in zip(stats, centres):
+            x0 = xc - bw / 2
+            ctx.rgb(*INK)
+            ctx.rectangle(x0, y - bh / 2, bw, bh).stroke()
+            ctx.rgb(*(RED if val < STAT_LOW else INK))
+            ctx.rectangle(x0, y - bh / 2, bw * (val / 100.0), bh).fill()
         ctx.restore()
+        for (label, val), xc in zip(stats, centres):
+            self._text(ctx, label, xc, y + 15, 10,
+                       colour=(RED if val < STAT_LOW else INK))
 
     def _draw_menu(self, ctx):
         n = len(self.menu_items)
@@ -253,14 +259,14 @@ class RenderMixin:
             ctx.stroke()
         ctx.restore()
 
-    # ----- play (dangle a thread on a web)
+    # ----- play (shake the badge to play with the spider)
     def _draw_action(self, ctx, kind):
         self._draw_spider(ctx, 0, 24, 1.3, self._is_glowing())
-        self._icon_web(ctx, 0, -48, 1.4)
+        self._icon_web(ctx, 0, -52, 1.4)
         label = "shake to play!" if self._has_imu else "playing..."
         self._text(ctx, label, 0, -96, 15)
-        if self.played_shake:
-            self._text(ctx, "wheee!", 0, 92, 14)
+        if self._has_imu:
+            self._text(ctx, "shakes: %d" % self.play_shakes, 0, -20, 14)
         self._text(ctx, "F: skip", 0, 110, 11)
 
     # ----- fight
@@ -294,24 +300,30 @@ class RenderMixin:
 
     # ----- kaiju
     def _draw_kaiju(self, ctx):
+        # finale: the whole world has fallen
+        if self.monument_state == "done":
+            self._draw_spider(ctx, 0, -4, 3.0, True)
+            self._text(ctx, "WORLD", 0, -84, 18)
+            self._text(ctx, "CONQUERED", 0, -62, 18)
+            self._text(ctx, "razed: %d" % self.pet.get("monuments_destroyed", 0), 0, 74, 12)
+            self._text(ctx, "C: again", 0, 96, 12)
+            return
+
         name, _ = MONUMENTS[self.monument_index]
-        # giant spider fills most of the screen
-        self._draw_spider(ctx, 0, -6, 3.4, self._is_glowing())
+        # giant spider, with a now-visible monument at its feet
+        self._draw_spider(ctx, 0, -10, 2.9, self._is_glowing())
+        self._text(ctx, "APEX %s LV %d/%d" % (chr(0x00B7), self.pet["level"], MAX_LEVEL), 0, -92, 12)
+        self._text(ctx, "razed: %d" % self.pet.get("monuments_destroyed", 0), 0, -72, 11)
         if self.monument_state == "smashing":
             ctx.save()
             ctx.rgb(*INK)
             for d in self.debris:
-                ctx.rectangle(d["x"], d["y"], 4, 4).fill()
+                ctx.rectangle(d["x"], d["y"], 5, 5).fill()
             ctx.restore()
             self._text(ctx, "SMASH!", 0, 80, 22)
         else:
-            # monument tiny at the spider's feet -> scale contrast
-            getattr(self, "_mon_" + name.replace(" ", "_"), self._mon_skyscraper)(ctx, 70, 88, 0.45)
-            self._text(ctx, "C: STOMP", 0, 70, 14)
-        self._text(ctx, "APEX PREDATOR %s LV 50/50 %s UNDEFEATED" % (chr(0x00B7), chr(0x00B7)),
-                   0, -104, 11)
-        self._text(ctx, "Monuments destroyed: %d" % self.pet.get("monuments_destroyed", 0),
-                   0, 106, 12)
+            getattr(self, "_mon_" + name.replace(" ", "_"), self._mon_skyscraper)(ctx, 50, 60, 0.7)
+            self._text(ctx, "C: STOMP", 0, 96, 13)
 
     # ----- transient overlay text (lower band so it's easy to read)
     def _draw_overlays(self, ctx):

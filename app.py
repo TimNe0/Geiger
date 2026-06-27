@@ -35,14 +35,16 @@ try:
     from .consts import (
         CONFIG_KEY, FEED_COOLDOWN_S, NUKE_EVERY, GLOW_S, DECAY_PER_MIN,
         XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, LEVELS_PER_STAGE,
-        DEFAULT_NAME, GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR,
-        POOP_SPOTS, now, clamp)
+        STARVE_NEEDINESS, STARVE_DROP_S, SHAKE_THRESHOLD, PLAY_DURATION_S,
+        DEFAULT_NAME, GLOW, RED, PREY_BANDS, MONUMENTS, OH_NO_LINES,
+        FIGHT_FLAVOUR, POOP_SPOTS, now, clamp)
 except (ImportError, ValueError):  # imported as a top-level module
     from consts import (
         CONFIG_KEY, FEED_COOLDOWN_S, NUKE_EVERY, GLOW_S, DECAY_PER_MIN,
         XP_PER_LEVEL, MAX_LEVEL, FIGHT_LEVEL, KAIJU_LEVEL, LEVELS_PER_STAGE,
-        DEFAULT_NAME, GLOW, PREY_BANDS, MONUMENTS, OH_NO_LINES, FIGHT_FLAVOUR,
-        POOP_SPOTS, now, clamp)
+        STARVE_NEEDINESS, STARVE_DROP_S, SHAKE_THRESHOLD, PLAY_DURATION_S,
+        DEFAULT_NAME, GLOW, RED, PREY_BANDS, MONUMENTS, OH_NO_LINES,
+        FIGHT_FLAVOUR, POOP_SPOTS, now, clamp)
 
 # Hardware is optional so the app still imports under bare simulators.
 try:
@@ -107,10 +109,13 @@ class GeigerApp(RenderMixin, app.App):
 
         # idle wandering on the main screen
         self.wander_x = 0.0
-        self.wander_y = 12.0
+        self.wander_y = 4.0
         self.wander_tx = 0.0
-        self.wander_ty = 12.0
+        self.wander_ty = 4.0
         self.wander_timer = 0.0
+
+        # neglect: time spent starved, drives level loss
+        self.starve_t = 0.0
 
         # mini-game scratch state
         self.spider_x = 0.0
@@ -119,7 +124,10 @@ class GeigerApp(RenderMixin, app.App):
         self.feed_is_nuke = False
         self.feed_caught = False
         self.action_t = 0.0      # play animation timer
+        self.play_shakes = 0     # shakes counted this play session
+        self.play_high = False   # IMU edge-detect state
         self.played_shake = False
+        self.kaiju_smashed = 0   # monuments smashed this rampage round
         self.fight_phase = 0.0
         self.fight_ohno = ""
         self.monument_index = 0
@@ -232,6 +240,24 @@ class GeigerApp(RenderMixin, app.App):
     def _neediness(self):
         return (self.pet["hunger"] + self.pet["clean"] + self.pet["happiness"]) / 3.0
 
+    def _check_starvation(self, dt):
+        # sustained neglect now costs levels (floored at 1)
+        if self._neediness() < STARVE_NEEDINESS:
+            self.starve_t += dt
+            if self.starve_t >= STARVE_DROP_S:
+                self.starve_t = 0.0
+                if self.pet["level"] > 1:
+                    self.pet["level"] -= 1
+                    self.pet["xp"] = 0
+                    self.pet["size_stage"] = self._size_for_level(self.pet["level"])
+                    self.shake = 4.0
+                    self._led_pulse(RED)
+                    self._flash_message("Neglected! Lost a level.")
+                    self._notify("Lost a level")
+                    self._save()
+        else:
+            self.starve_t = max(0.0, self.starve_t - dt)
+
     # ----------------------------------------------------------------- xp / level
     def _grant_xp(self, amount):
         # sluggish XP when neglected; it's awesome, it endures, just slower
@@ -257,7 +283,7 @@ class GeigerApp(RenderMixin, app.App):
     def _on_level_up(self, milestone):
         lvl = self.pet["level"]
         if lvl >= KAIJU_LEVEL:
-            self._flash_message("APEX PREDATOR! LV 50")
+            self._flash_message("APEX PREDATOR! LV %d" % MAX_LEVEL)
         elif milestone:
             self._flash_message("GROWTH! LV %d" % lvl)
         else:
@@ -313,6 +339,12 @@ class GeigerApp(RenderMixin, app.App):
             self.shake = max(0.0, self.shake - dt * 12)
 
         self._decay_live(dt)
+        # only lose levels while idling on the main screen (not mid mini-game,
+        # which would desync the level from the active mode)
+        if self.pet.get("hatched") and self.view in ("main", "menu"):
+            self._check_starvation(dt)
+        else:
+            self.starve_t = max(0.0, self.starve_t - dt)
         self._update_leds()
 
         # Dialogs take over input while open.
@@ -406,8 +438,8 @@ class GeigerApp(RenderMixin, app.App):
         # gentle idle drift around the centre of the screen
         self.wander_timer -= dt
         if self.wander_timer <= 0:
-            self.wander_tx = random.uniform(-42, 42)
-            self.wander_ty = random.uniform(-6, 38)
+            self.wander_tx = random.uniform(-34, 34)
+            self.wander_ty = random.uniform(-14, 22)
             self.wander_timer = random.uniform(1.5, 3.5)
         ease = min(1.0, dt * 1.2)
         self.wander_x += (self.wander_tx - self.wander_x) * ease
@@ -477,25 +509,47 @@ class GeigerApp(RenderMixin, app.App):
 
     def _do_play(self):
         self.view = "play"
-        self.action_t = 1.2
+        self.action_t = PLAY_DURATION_S
+        self.play_shakes = 0
+        self.play_high = False
         self.played_shake = False
 
     def _update_action(self, dt, kind):
         if self.button_states.get(BUTTON_TYPES["CANCEL"]):
             self.button_states.clear()
             self.action_t = 0.0
-        if kind == "play" and _HAS_IMU and self._imu_magnitude() > 1.6:
-            self.played_shake = True
+        # Count discrete shakes via edge detection: a real shake must exceed
+        # SHAKE_THRESHOLD, and we wait for it to drop before counting another,
+        # so a single small nudge can't rack up a full session.
+        if kind == "play" and _HAS_IMU:
+            mag = self._imu_magnitude()
+            if mag > SHAKE_THRESHOLD and not self.play_high:
+                self.play_high = True
+                self.play_shakes += 1
+                self.played_shake = True
+                self.shake = 2.0
+            elif mag < SHAKE_THRESHOLD * 0.75:
+                self.play_high = False
         self.action_t -= dt
         if self.action_t <= 0:
             self._finish_action(kind)
 
     def _finish_action(self, kind):
-        boost = 45 if self.played_shake else 30
+        # happiness scales with how much you actually shook (button-only on a
+        # device without an IMU still gives a modest boost)
+        if not _HAS_IMU:
+            boost = 30
+        else:
+            boost = int(clamp(10 + 9 * self.play_shakes, 10, 50))
         self.pet["happiness"] = clamp(self.pet["happiness"] + boost, 0, 100)
         self._grant_xp(10)
         self.shake = 2.0
-        self._flash_message("Wheee! Happy spider.")
+        if self.play_shakes >= 4:
+            self._flash_message("Wheee! Best playtime ever.")
+        elif self.play_shakes >= 1:
+            self._flash_message("Fun! Happy spider.")
+        else:
+            self._flash_message("A quiet little play.")
         self._notify("Played")
         self._save()
         self.view = "main"
@@ -602,7 +656,7 @@ class GeigerApp(RenderMixin, app.App):
         self.pet["clean"] = clamp(self.pet["clean"] - 10, 0, 100)
         if self.feed_is_nuke:
             self.pet["glow_until"] = now() + GLOW_S
-            self._grant_xp(int(XP_PER_LEVEL * 2.5))  # upskill: ~2-3 levels
+            self._grant_xp(int(XP_PER_LEVEL * 2))  # upskill: ~2 levels
             self._led_pulse(GLOW)
             self._flash_message("UPSKILLED! Radioactive feast.")
             self._notify("Nuclear feed!")
@@ -648,12 +702,21 @@ class GeigerApp(RenderMixin, app.App):
         self.view = "kaiju"
         self.monument_state = "intact"
         self.monument_timer = 0.0
+        self.kaiju_smashed = 0
         self.debris = []
 
     def _update_kaiju(self, dt):
         if self.button_states.get(BUTTON_TYPES["CANCEL"]):
             self.button_states.clear()
             self.view = "main"
+            return
+        # finale: the whole world has fallen -- wait for CONFIRM to go again
+        if self.monument_state == "done":
+            if self.button_states.get(BUTTON_TYPES["CONFIRM"]):
+                self.button_states.clear()
+                self.monument_state = "intact"
+                self.monument_timer = 0.0
+                self.kaiju_smashed = 0
             return
         if self.monument_state == "smashing":
             self.monument_timer -= dt
@@ -662,8 +725,14 @@ class GeigerApp(RenderMixin, app.App):
                 d["y"] += d["vy"] * dt
                 d["vy"] += 200 * dt
             if self.monument_timer <= 0:
-                self.monument_state = "intact"
-                self.monument_index = (self.monument_index + 1) % len(MONUMENTS)
+                if self.kaiju_smashed >= len(MONUMENTS):
+                    # every landmark levelled -> finale
+                    self.monument_state = "done"
+                    self._flash_message("WORLD CONQUERED.")
+                    self._led_pulse(GLOW)
+                else:
+                    self.monument_state = "intact"
+                    self.monument_index = (self.monument_index + 1) % len(MONUMENTS)
             return
         # auto-rampage on a timer, or on CONFIRM
         self.monument_timer += dt
@@ -674,6 +743,7 @@ class GeigerApp(RenderMixin, app.App):
     def _smash_monument(self):
         name, flavour = MONUMENTS[self.monument_index]
         self.pet["monuments_destroyed"] = self.pet.get("monuments_destroyed", 0) + 1
+        self.kaiju_smashed += 1
         self.monument_state = "smashing"
         self.monument_timer = 1.2
         self.shake = 7.0
